@@ -47,6 +47,8 @@ class ProteinPairDataset(Dataset):
         else:
             raise ValueError("Provide either 'df' or 'cache_path' to ProteinPairDataset.")
 
+    
+
     def __len__(self):
         return len(self.features)
 
