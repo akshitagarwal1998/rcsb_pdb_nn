@@ -31,7 +31,7 @@ class GeometricFeature(DescriptorInterface):
     def descriptor_type(self):
         return "geometric"
 
-      def distance(self, other):
+    def distance(self, other):
         if not isinstance(other, GeometricFeature):
             raise TypeError("Distance comparison must be with another GeometricFeature.")
         norm_self = np.linalg.norm(self.values)
@@ -63,3 +63,7 @@ class BioZernikeMoment:
             self.geom.distance(other.geom),
             self.zernike.distance(other.zernike)
         ])
+
+    @property
+    def descriptor_type(self):
+        return "bioZernike"
