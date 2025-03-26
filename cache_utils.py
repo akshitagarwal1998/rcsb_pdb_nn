@@ -5,6 +5,8 @@ from itertools import combinations
 from multiprocessing import Pool, cpu_count
 import os
 import sys
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 from util import BioZernikeMoment
 
@@ -81,30 +83,68 @@ def cache_pairwise_data(df: pd.DataFrame, cache_dir: str, max_pairs=None, buffer
     print(f" Done. Total buffers flushed: {buffer_id + 1}")
 
 
-def load_cached_parts(cache_dir):
-    """
-    Loads and merges all part_*.pkl files from a given cache directory.
-    
-    Returns:
-        features (List[Tensor]), labels (List[Tensor])
-    """
-    all_features = []
-    all_labels = []
+def load_cached_parts(cache_dir, max_threads=16, max_parts=None):
+    import os, pickle
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _load(path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
     part_files = sorted([
-        f for f in os.listdir(cache_dir)
+        os.path.join(cache_dir, f)
+        for f in os.listdir(cache_dir)
         if f.startswith("part_") and f.endswith(".pkl")
     ])
 
-    print(f"Loading {len(part_files)} cached parts from: {cache_dir}")
+    if max_parts:
+        part_files = part_files[:max_parts]
 
-    for ix,fname in enumerate(part_files):
-        path = os.path.join(cache_dir, fname)
-        with open(path, "rb") as f:
-            part = pickle.load(f)
+    print(f"Loading {len(part_files)} cached parts using {max_threads} threads...")
+
+    all_features = []
+    all_labels = []
+
+    with ThreadPoolExecutor(max_threads) as executor:
+        for ix, part in enumerate(executor.map(_load, part_files)):
             all_features.extend(part["features"])
             all_labels.extend(part["labels"])
-        print("Loaded ",ix)
+            if ix % 100 == 0:
+                print(f"Loaded {ix}/{len(part_files)}")
 
-    print(f"Loaded {len(all_features)} total pairs.")
+    print(f" Done. Total pairs loaded: {len(all_features)}")
+    return all_features, all_labels
+
+def _load_part(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+def load_and_merge_parts(cache_dir, save_path=None, max_threads=16):
+    """
+    Loads and merges all part_*.pkl files in parallel, with progress bar.
+    Optionally saves the merged version as a single .pkl file.
+    """
+    part_files = sorted([
+        os.path.join(cache_dir, f)
+        for f in os.listdir(cache_dir)
+        if f.startswith("part_") and f.endswith(".pkl")
+    ])
+
+    print(f"Loading {len(part_files)} parts from {cache_dir} using {max_threads} threads...")
+
+    all_features = []
+    all_labels = []
+
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        for part in tqdm(executor.map(_load_part, part_files), total=len(part_files)):
+            all_features.extend(part["features"])
+            all_labels.extend(part["labels"])
+
+    print(f" Merged total pairs: {len(all_features)}")
+
+    if save_path:
+        with open(save_path, "wb") as f:
+            pickle.dump({"features": all_features, "labels": all_labels}, f)
+        print(f" Saved merged dataset to: {save_path}")
+
     return all_features, all_labels
