@@ -1,13 +1,17 @@
-from torch.utils.data import DataLoader, WeightedRandomSampler, Subset
-from sklearn.model_selection import train_test_split
-from tqdm.notebook import tqdm
+import os
+import time
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.nn as nn
+from torch.utils.data import DataLoader, WeightedRandomSampler, Subset
+from torch.utils.tensorboard import SummaryWriter
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
+from tqdm.notebook import tqdm
 
 from model import ProteinClassifier
 from dataset import ProteinPairDataset
-from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 
 # Max out compute threads
 torch.set_num_threads(os.cpu_count())
@@ -91,6 +95,11 @@ def train_model(
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
 
+    # Adding support for the tensorboard
+    run_name = f"run_hidden{hidden_dim}_{int(time.time())}"
+    writer = SummaryWriter(log_dir=f"tensorboard_logs/{run_name}")
+
+
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0
@@ -115,13 +124,22 @@ def train_model(
             progress_bar.set_postfix(loss=loss.item())
 
         # Eval
-        val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn)
+        val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn,device)
 
-        print(f"Epoch {epoch+1}/{num_epochs} | "
-              f"Train Loss: {train_loss:.4f} | "
-              f"Val Loss: {val_loss:.4f} | "
-              f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+        # print(f"Epoch {epoch+1}/{num_epochs} | "
+        #       f"Train Loss: {train_loss:.4f} | "
+        #       f"Val Loss: {val_loss:.4f} | "
+        #       f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
 
+        #Add to tensorboard
+        writer.add_scalar("Loss/Train", train_loss, epoch)
+        writer.add_scalar("Loss/Val", val_loss, epoch)
+        writer.add_scalar("Metrics/ROC_AUC", roc_auc, epoch)
+        writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
+        writer.add_scalar("Metrics/MCC", mcc, epoch)
+
+    writer.close()
+    
     return model
 
 
