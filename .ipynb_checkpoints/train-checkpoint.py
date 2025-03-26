@@ -9,19 +9,24 @@ from model import ProteinClassifier
 from dataset import ProteinPairDataset
 from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 
+# Max out compute threads
+torch.set_num_threads(os.cpu_count())
+
 def compute_sample_weights(dataset):
     labels = torch.tensor([label.item() for _, label in dataset])
     class_counts = torch.tensor([(labels == t).sum() for t in torch.unique(labels)])
     weights = 1. / class_counts.float()
     return weights[labels.long()]
 
-def evaluate(model, dataloader, loss_fn):
+def evaluate(model, dataloader, loss_fn, device):
     model.eval()
     all_logits, all_labels = [], []
     total_loss = 0.0
 
     with torch.no_grad():
         for batch_x, batch_y in dataloader:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
             logits = model(batch_x).squeeze()
             loss = loss_fn(logits, batch_y)
             total_loss += loss.item()
@@ -51,6 +56,10 @@ def train_model(
       - OR precomputed (features + labels)
     """
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Training on: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
+
+
     if features and labels:
         dataset = ProteinPairDataset(features=features, labels=labels)
         dataset_size = len(dataset)
@@ -72,11 +81,11 @@ def train_model(
     sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(train_weights), replacement=True)
 
     # Loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=os.cpu_count())
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count())
 
     # Model and optimizer
-    model = ProteinClassifier(hidden_dim=hidden_dim)
+    model = ProteinClassifier(hidden_dim=hidden_dim).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = nn.BCEWithLogitsLoss()
 
@@ -90,6 +99,8 @@ def train_model(
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
 
         for batch_x, batch_y in progress_bar:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
             logits = model(batch_x).squeeze()
             loss = loss_fn(logits, batch_y)
 
@@ -98,8 +109,8 @@ def train_model(
             optimizer.step()
 
             train_loss += loss.item()
-            all_logits.extend(logits.detach().numpy())
-            all_labels.extend(batch_y.numpy())
+            all_logits.extend(logits.detach().cpu().numpy())
+            all_labels.extend(batch_y.cpu().numpy())
 
             progress_bar.set_postfix(loss=loss.item())
 
@@ -118,7 +129,7 @@ def test_model_on_ecod(model, ecod_df, batch_size=4):
     test_dataset = ProteinPairDataset(ecod_df)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     loss_fn = nn.BCEWithLogitsLoss()
-    test_loss, roc_auc, pr_auc, mcc = evaluate(model, test_loader, loss_fn)
+    test_loss, roc_auc, pr_auc, mcc = evaluate(model, test_loader, loss_fn, device)
 
     print(f"[FINAL TEST on ECOD] Loss: {test_loss:.4f} | ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
 
