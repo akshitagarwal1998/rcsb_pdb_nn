@@ -9,9 +9,13 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 from tqdm.notebook import tqdm
+from datetime import datetime
+timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+
 
 from model import ProteinClassifier
 from dataset import ProteinPairDataset
+from tensorboard_utils import get_tensorboard_writer
 
 # Max out compute threads
 torch.set_num_threads(os.cpu_count())
@@ -52,6 +56,7 @@ def train_model(
     hidden_dim=None,
     num_epochs=5,
     batch_size=4,
+    lr=1e-3,
     val_split=0.2
 ):
     """
@@ -63,6 +68,8 @@ def train_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
 
+    # Log 
+    log_path = "train_log.txt"
 
     if features and labels:
         dataset = ProteinPairDataset(features=features, labels=labels)
@@ -90,14 +97,20 @@ def train_model(
 
     # Model and optimizer
     model = ProteinClassifier(hidden_dim=hidden_dim).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.BCEWithLogitsLoss()
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
 
     # Adding support for the tensorboard
     run_name = f"run_hidden{hidden_dim}_{int(time.time())}"
-    writer = SummaryWriter(log_dir=f"tensorboard_logs/{run_name}")
+    writer = get_tensorboard_writer(
+            hidden_dim=hidden_dim,
+            batch_size=batch_size,
+            lr=lr,
+            num_epochs=num_epochs,
+            tag="baseline"
+            )
 
 
     for epoch in range(num_epochs):
@@ -131,6 +144,17 @@ def train_model(
         #       f"Val Loss: {val_loss:.4f} | "
         #       f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
 
+        msg = (f"Epoch {epoch+1}/{num_epochs} | "
+       f"Train Loss: {train_loss:.4f} | "
+       f"Val Loss: {val_loss:.4f} | "
+       f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+
+        # print(msg)           # print to console
+        with open(log_path, "a") as f:
+            ts = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+            f.write(f"{ts} {msg}\n")
+
+
         #Add to tensorboard
         writer.add_scalar("Loss/Train", train_loss, epoch)
         writer.add_scalar("Loss/Val", val_loss, epoch)
@@ -139,6 +163,8 @@ def train_model(
         writer.add_scalar("Metrics/MCC", mcc, epoch)
 
     writer.close()
+    log_file.close()
+
     
     return model
 
