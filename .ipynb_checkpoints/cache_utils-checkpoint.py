@@ -79,3 +79,31 @@ def cache_pairwise_data(df: pd.DataFrame, cache_dir: str, max_pairs=None, buffer
         flush_buffer(buffer_id, buffer_features, buffer_labels, cache_dir)
 
     print(f" Done. Total buffers flushed: {buffer_id + 1}")
+
+
+def load_cached_parts(cache_dir):
+    """
+    Loads and merges all part_*.pkl files from a given cache directory.
+    
+    Returns:
+        features (List[Tensor]), labels (List[Tensor])
+    """
+    all_features = []
+    all_labels = []
+
+    part_files = sorted([
+        f for f in os.listdir(cache_dir)
+        if f.startswith("part_") and f.endswith(".pkl")
+    ])
+
+    print(f"Loading {len(part_files)} cached parts from: {cache_dir}")
+
+    for fname in part_files:
+        path = os.path.join(cache_dir, fname)
+        with open(path, "rb") as f:
+            part = pickle.load(f)
+            all_features.extend(part["features"])
+            all_labels.extend(part["labels"])
+
+    print(f"Loaded {len(all_features)} total pairs.")
+    return all_features, all_labels
