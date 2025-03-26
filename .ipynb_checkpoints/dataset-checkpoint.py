@@ -1,28 +1,41 @@
 import torch
 from torch.utils.data import Dataset
-import pandas as pd
-import numpy as np
 import pickle
-from itertools import combinations
-from util import BioZernikeMoment
 
 class ProteinPairDataset(Dataset):
-    def __init__(self, df: pd.DataFrame = None, max_pairs=None, cache_path=None):
+    def __init__(self, df=None, cache_path=None, features=None, labels=None):
+        """
+        You must provide one of:
+        - df (for dynamic pair generation),
+        - cache_path (precomputed pickle file),
+        - or (features, labels) pair from merged parts
+
+        dataset = ProteinPairDataset(cache_path="cache/cath_pairs.pkl")
+
+        features, labels = load_cached_parts("cache/cath_buffered")
+        dataset = ProteinPairDataset(features=features, labels=labels)
+
+        dataset = ProteinPairDataset(df=cath_df.head(100))    
+        
+        """
         self.features = []
         self.labels = []
 
-        if cache_path is not None:
-            # Load precomputed distances and labels from cache
+        if cache_path:
             with open(cache_path, "rb") as f:
                 cache = pickle.load(f)
             self.features = cache["features"]
             self.labels = cache["labels"]
 
+        elif features is not None and labels is not None:
+            self.features = features
+            self.labels = labels
+
         elif df is not None:
-            # Compute distances and labels on-the-fly
+            from itertools import combinations
+            from util import BioZernikeMoment  # Imported here to avoid circular issues
+
             self.pairs = list(combinations(range(len(df)), 2))
-            if max_pairs:
-                self.pairs = self.pairs[:max_pairs]
 
             for i, j in self.pairs:
                 row_i = df.iloc[i]
@@ -45,12 +58,11 @@ class ProteinPairDataset(Dataset):
                 self.labels.append(torch.tensor(label, dtype=torch.float32))
 
         else:
-            raise ValueError("Provide either 'df' or 'cache_path' to ProteinPairDataset.")
-
-    
+            raise ValueError("Must provide either df, cache_path, or (features + labels)")
 
     def __len__(self):
         return len(self.features)
 
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
+    

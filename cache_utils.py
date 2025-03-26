@@ -98,12 +98,13 @@ def load_cached_parts(cache_dir):
 
     print(f"Loading {len(part_files)} cached parts from: {cache_dir}")
 
-    for fname in part_files:
+    for ix,fname in enumerate(part_files):
         path = os.path.join(cache_dir, fname)
         with open(path, "rb") as f:
             part = pickle.load(f)
             all_features.extend(part["features"])
             all_labels.extend(part["labels"])
+        print("Loaded ",ix)
 
     print(f"Loaded {len(all_features)} total pairs.")
     return all_features, all_labels
