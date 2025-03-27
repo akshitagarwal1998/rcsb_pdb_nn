@@ -1,22 +1,17 @@
 import torch
+import itertools
 from torch.utils.data import Dataset
 import pickle
+from util import BioZernikeMoment
+from itertools import combinations
 
 class ProteinPairDataset(Dataset):
     def __init__(self, df=None, cache_path=None, features=None, labels=None):
         """
-        You must provide one of:
-        - df (for dynamic pair generation),
-        - cache_path (precomputed pickle file),
-        - or (features, labels) pair from merged parts
-
-        dataset = ProteinPairDataset(cache_path="cache/cath_pairs.pkl")
-
-        features, labels = load_cached_parts("cache/cath_buffered")
-        dataset = ProteinPairDataset(features=features, labels=labels)
-
-        dataset = ProteinPairDataset(df=cath_df.head(100))    
-        
+        Use one of the following:
+        - `df`: Compute on-the-fly (slow for large datasets)
+        - `cache_path`: Load cached (recommended)
+        - `(features, labels)`: Preloaded from merged cache parts
         """
         self.features = []
         self.labels = []
@@ -33,10 +28,9 @@ class ProteinPairDataset(Dataset):
 
         elif df is not None:
             from itertools import combinations
-            from util import BioZernikeMoment  # Imported here to avoid circular issues
+            from util import BioZernikeMoment 
 
             self.pairs = list(combinations(range(len(df)), 2))
-
             for i, j in self.pairs:
                 row_i = df.iloc[i]
                 row_j = df.iloc[j]
@@ -52,7 +46,7 @@ class ProteinPairDataset(Dataset):
                 bio_i = BioZernikeMoment(geom_i, zern_i)
                 bio_j = BioZernikeMoment(geom_j, zern_j)
 
-                dist = bio_i.distance_vector(bio_j)
+                dist = bio_i.distance_vector(bio_j)  # Full vector 
 
                 self.features.append(torch.tensor(dist, dtype=torch.float32))
                 self.labels.append(torch.tensor(label, dtype=torch.float32))
@@ -65,4 +59,34 @@ class ProteinPairDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
-    
+
+class StreamingProteinPairDataset(Dataset):
+    def __init__(self, df):
+        self.df = df.reset_index(drop=True)
+        self.num_proteins = len(df)
+
+        # Build index mapping for combinations 
+        self.index_pairs = list(itertools.combinations(range(self.num_proteins), 2))
+
+    def __len__(self):
+        return len(self.index_pairs)
+
+    def __getitem__(self, idx):
+        i, j = self.index_pairs[idx]
+
+        row_i = self.df.iloc[i]
+        row_j = self.df.iloc[j]
+
+        label = int(row_i[0] == row_j[0])
+        geom_i = row_i[1:18].values
+        geom_j = row_j[1:18].values
+        zern_i = row_i[18:].values
+        zern_j = row_j[18:].values
+
+        bio_i = BioZernikeMoment(geom_i, zern_i)
+        bio_j = BioZernikeMoment(geom_j, zern_j)
+
+        distance_vector = bio_i.distance_vector(bio_j)
+
+        return torch.tensor(distance_vector, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+

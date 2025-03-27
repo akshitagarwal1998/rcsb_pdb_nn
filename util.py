@@ -1,69 +1,57 @@
-from abc import ABC, abstractmethod
 import numpy as np
 
-class DescriptorInterface(ABC):
+class DescriptorInterface:
     def __init__(self, values):
-        self._values = np.array(values)
+        self._values = np.array(values, dtype=np.float32)
 
     @property
     def values(self):
         return self._values
 
     @values.setter
-    def values(self, val):
-        val = np.array(val)
-        if val.ndim != 1:
-            raise ValueError("Descriptor must be a 1D array.")
-        self._values = val
+    def values(self, new_vals):
+        arr = np.array(new_vals, dtype=np.float32)
+        if len(arr.shape) != 1:
+            raise ValueError("Descriptor values must be a 1D array.")
+        self._values = arr
 
-    @property
-    @abstractmethod
-    def descriptor_type(self):
-        pass
-
-    @abstractmethod
     def distance(self, other):
-        pass
+        raise NotImplementedError("Must implement in subclass.")
 
 
 class GeometricFeature(DescriptorInterface):
-    @property
-    def descriptor_type(self):
-        return "geometric"
+    descriptor_type = "geometric"
 
     def distance(self, other):
         if not isinstance(other, GeometricFeature):
             raise TypeError("Distance comparison must be with another GeometricFeature.")
-        norm_self = np.linalg.norm(self.values)
-        norm_other = np.linalg.norm(other.values)
-        diff_norm = np.linalg.norm(self.values - other.values)
-        return (2 * diff_norm) / (1 + norm_self + norm_other)
+        return np.array([
+            (2 * abs(a - b)) / (1 + abs(a) + abs(b))
+            for a, b in zip(self.values, other.values)
+        ])
 
 
 class ZernikeMoment(DescriptorInterface):
-    @property
-    def descriptor_type(self):
-        return "zernike"
+    descriptor_type = "zernike"
 
     def distance(self, other):
         if not isinstance(other, ZernikeMoment):
             raise TypeError("Distance comparison must be with another ZernikeMoment.")
-        return np.linalg.norm(self.values - other.values)
+        return np.abs(self.values - other.values)
 
 
 class BioZernikeMoment:
-    def __init__(self, geom_values, zernike_values):
-        self.geom = GeometricFeature(geom_values)
-        self.zernike = ZernikeMoment(zernike_values)
+    descriptor_type = "biozernike"
+
+    def __init__(self, geometric_values, zernike_values):
+        self.geom = GeometricFeature(geometric_values)
+        self.zern = ZernikeMoment(zernike_values)
 
     def distance_vector(self, other):
-        if not isinstance(other, BioZernikeMoment):
-            raise TypeError("Distance must be computed between two BioZernikeMoment objects.")
-        return np.array([
+        return np.concatenate([
             self.geom.distance(other.geom),
-            self.zernike.distance(other.zernike)
+            self.zern.distance(other.zern)
         ])
 
-    @property
-    def descriptor_type(self):
-        return "bioZernike"
+    def bio_vector_length(self):
+        return len(self.geom.distance(self.geom)) + len(self.zern.distance(self.zern))
