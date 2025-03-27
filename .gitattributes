@@ -1,3 +1,4 @@
 *.tsv filter=lfs diff=lfs merge=lfs -text
 cache/* filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
 cache/**/*.pkl !text !filter !merge !diff
