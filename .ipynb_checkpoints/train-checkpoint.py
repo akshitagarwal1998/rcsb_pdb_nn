@@ -9,16 +9,14 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 from tqdm.notebook import tqdm
-from datetime import datetime
-timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-
 
 from model import ProteinClassifier
-from dataset import ProteinPairDataset
-from tensorboard_utils import get_tensorboard_writer
+from dataset import ProteinPairDataset,StreamingProteinPairDataset
 
-# Max out compute threads
-torch.set_num_threads(os.cpu_count())
+# Limit CPU usage to 80% of available cores
+num_threads = max(1, int(os.cpu_count() * 0.8))
+torch.set_num_threads(num_threads)
+print(f"[INFO] Using {num_threads} CPU threads")
 
 def compute_sample_weights(dataset):
     labels = torch.tensor([label.item() for _, label in dataset])
@@ -39,8 +37,8 @@ def evaluate(model, dataloader, loss_fn, device):
             loss = loss_fn(logits, batch_y)
             total_loss += loss.item()
 
-            all_logits.extend(logits.detach().numpy())
-            all_labels.extend(batch_y.numpy())
+            all_logits.extend(logits.detach().cpu().numpy())
+            all_labels.extend(batch_y.cpu().numpy())
 
     probs = torch.sigmoid(torch.tensor(all_logits)).numpy()
     roc_auc = roc_auc_score(all_labels, probs)
@@ -50,26 +48,26 @@ def evaluate(model, dataloader, loss_fn, device):
     return total_loss, roc_auc, pr_auc, mcc
 
 def train_model(
-    cath_df=None,
+    protein_df=None,
     features=None,
     labels=None,
     hidden_dim=None,
+    input_dim=None,
     num_epochs=5,
-    batch_size=4,
-    lr=1e-3,
-    val_split=0.2
+    batch_size=64,
+    val_split=0.2,
+    writer=None,
+    streaming=False 
 ):
+
     """
     Trains a model using either:
-      - raw DataFrame (cath_df)
+      - raw DataFrame (protein_df)
       - OR precomputed (features + labels)
     """
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
-
-    # Log 
-    log_path = "train_log.txt"
 
     if features and labels:
         dataset = ProteinPairDataset(features=features, labels=labels)
@@ -80,38 +78,50 @@ def train_model(
 
         train_dataset = Subset(dataset, train_indices)
         val_dataset = Subset(dataset, val_indices)
-    elif cath_df is not None:
-        train_df, val_df = train_test_split(cath_df, test_size=val_split, random_state=42, shuffle=True)
-        train_dataset = ProteinPairDataset(df=train_df)
-        val_dataset = ProteinPairDataset(df=val_df)
+    elif protein_df is not None:
+        train_df, val_df = train_test_split(protein_df, test_size=val_split, random_state=42, shuffle=True)
+
+        if streaming:
+            train_dataset = StreamingProteinPairDataset(train_df)
+            val_dataset = StreamingProteinPairDataset(val_df)
+        else:
+            train_dataset = ProteinPairDataset(df=train_df)
+            val_dataset = ProteinPairDataset(df=val_df)
+
     else:
-        raise ValueError("Must pass either cath_df or features + labels")
+        raise ValueError("Must pass either protein_df or features + labels")
 
     # Weighted sampler (train only)
     train_weights = compute_sample_weights(train_dataset)
     sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(train_weights), replacement=True)
 
-    # Loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=os.cpu_count())
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=os.cpu_count())
+    # Loaders with efficient threading
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        num_workers=num_threads,
+        prefetch_factor=2,
+        persistent_workers=True
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_threads,
+        prefetch_factor=2,
+        persistent_workers=True
+    )
 
     # Model and optimizer
-    model = ProteinClassifier(hidden_dim=hidden_dim).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    model = ProteinClassifier(hidden_dim=hidden_dim, input_dim=input_dim).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = nn.BCEWithLogitsLoss()
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
 
-    # Adding support for the tensorboard
-    run_name = f"run_hidden{hidden_dim}_{int(time.time())}"
-    writer = get_tensorboard_writer(
-            hidden_dim=hidden_dim,
-            batch_size=batch_size,
-            lr=lr,
-            num_epochs=num_epochs,
-            tag="baseline"
-            )
-
+    log_file = open("train_log.txt", "a")
 
     for epoch in range(num_epochs):
         model.train()
@@ -134,54 +144,49 @@ def train_model(
             all_logits.extend(logits.detach().cpu().numpy())
             all_labels.extend(batch_y.cpu().numpy())
 
-            progress_bar.set_postfix(loss=loss.item())
-
-        # Eval
-        val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn,device)
-
-        # print(f"Epoch {epoch+1}/{num_epochs} | "
-        #       f"Train Loss: {train_loss:.4f} | "
-        #       f"Val Loss: {val_loss:.4f} | "
-        #       f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+        # Evaluation
+        val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn, device)
 
         msg = (f"Epoch {epoch+1}/{num_epochs} | "
-       f"Train Loss: {train_loss:.4f} | "
-       f"Val Loss: {val_loss:.4f} | "
-       f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+               f"Train Loss: {train_loss:.4f} | "
+               f"Val Loss: {val_loss:.4f} | "
+               f"ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
 
-        # print(msg)           # print to console
-        with open(log_path, "a") as f:
-            ts = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-            f.write(f"{ts} {msg}\n")
+        print(msg)
+        from datetime import datetime
+        log_file.write(f"{datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')} {msg}\n")
+        log_file.flush()
+        os.fsync(log_file.fileno())
 
+        if writer:
+            writer.add_scalar("Loss/Train", train_loss, epoch)
+            writer.add_scalar("Loss/Val", val_loss, epoch)
+            writer.add_scalar("Metrics/ROC_AUC", roc_auc, epoch)
+            writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
+            writer.add_scalar("Metrics/MCC", mcc, epoch)
 
-        #Add to tensorboard
-        writer.add_scalar("Loss/Train", train_loss, epoch)
-        writer.add_scalar("Loss/Val", val_loss, epoch)
-        writer.add_scalar("Metrics/ROC_AUC", roc_auc, epoch)
-        writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
-        writer.add_scalar("Metrics/MCC", mcc, epoch)
-
-    writer.close()
     log_file.close()
-
-    
     return model
 
 
-def test_model_on_ecod(model, ecod_df, batch_size=4):
-    test_dataset = ProteinPairDataset(ecod_df)
+def test_model_on_ecod(model, ecod_df, writer=None, batch_size=64, device="cpu", log_path="test_log.txt"):
+    test_dataset = ProteinPairDataset(df=ecod_df)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     loss_fn = nn.BCEWithLogitsLoss()
     test_loss, roc_auc, pr_auc, mcc = evaluate(model, test_loader, loss_fn, device)
 
-    print(f"[FINAL TEST on ECOD] Loss: {test_loss:.4f} | ROC AUC: {roc_auc:.3f} | PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+    msg = (f"[FINAL TEST on ECOD] Loss: {test_loss:.4f} | ROC AUC: {roc_auc:.3f} | "
+           f"PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
+    print(msg)
 
+    from datetime import datetime
+    with open(log_path, "a") as f:
+        f.write(f"{datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')} {msg}\n")
 
-if __name__ == "__main__":
-    cath_df = pd.read_csv("./data/cath_moments.tsv", sep='\t', header=None).dropna(axis=1)
-    ecod_df = pd.read_csv("./data/ecod_moments.tsv", sep='\t', header=None).dropna(axis=1)
+    if writer:
+        writer.add_scalar("Test/Loss", test_loss)
+        writer.add_scalar("Test/ROC_AUC", roc_auc)
+        writer.add_scalar("Test/PR_AUC", pr_auc)
+        writer.add_scalar("Test/MCC", mcc)
 
-    model = train_model(cath_df, hidden_dim=None, num_epochs=5)
-    test_model_on_ecod(model, ecod_df)
-
+    return test_loss, roc_auc, pr_auc, mcc
