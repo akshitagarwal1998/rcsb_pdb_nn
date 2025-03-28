@@ -9,11 +9,14 @@ from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 from tqdm.notebook import tqdm
+from datetime import datetime
+timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 from model import ProteinClassifier
 from dataset import ProteinPairDataset,StreamingProteinPairDataset
 from weight_strategy import inverse_class_weighting
 from dataset import create_dataloaders
+from tensorboard_utils import get_tensorboard_writer
 
 # Limit CPU usage to 80% of available cores
 num_threads = max(1, int(os.cpu_count() * 0.8))
@@ -53,6 +56,7 @@ def train_model(
     batch_size=64,
     val_split=0.2,
     writer=None,
+    lr=1e-3,
     streaming=True 
 ):
 
@@ -64,6 +68,20 @@ def train_model(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
+
+    writer = get_tensorboard_writer(
+        hidden_dim=hidden_dim,
+        batch_size=batch_size,
+        lr=lr,
+        num_epochs=num_epochs,
+        tag="baseline"
+    )
+
+    # Extract log directory name from tensorboard writer for consistent logging
+    log_dir_name = os.path.basename(writer.log_dir.rstrip('/'))
+    os.makedirs("logs", exist_ok=True)
+    log_file_path = os.path.join("logs", f"{log_dir_name}.txt")
+    log_file = open(log_file_path, "a")
 
     if features and labels:
         dataset = ProteinPairDataset(features=features, labels=labels)
@@ -84,7 +102,7 @@ def train_model(
     print(f"[INFO] Loading Dataloader using streaming :",streaming)
 
     train_loader, val_loader = create_dataloaders(
-        protein_df=protein_df,
+        protein_df=protein_df.head(500),
         features=features,
         labels=labels,
         batch_size=batch_size,
@@ -94,12 +112,10 @@ def train_model(
 
     # Model and optimizer
     model = ProteinClassifier(hidden_dim=hidden_dim, input_dim=input_dim).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.BCEWithLogitsLoss()
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
-
-    log_file = open("train_log.txt", "a")
 
     for epoch in range(num_epochs):
         model.train()
@@ -142,7 +158,8 @@ def train_model(
             writer.add_scalar("Metrics/ROC_AUC", roc_auc, epoch)
             writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
             writer.add_scalar("Metrics/MCC", mcc, epoch)
-
+        
+    writer.close()
     log_file.close()
     return model
 
