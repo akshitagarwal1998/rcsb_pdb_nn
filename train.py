@@ -199,9 +199,11 @@ def train_model(
     return model
 
 
-def test_model_on_ecod(model, ecod_df, writer=None, batch_size=64, device="cpu", log_path="test_log.txt"):
-    test_dataset = ProteinPairDataset(df=ecod_df)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+def test_model_on_ecod(model, protein_df, writer=None, batch_size=64, device="cpu", log_path="test_log.txt"):
+    test_dataset = StreamingProteinPairDataset(protein_df)
+
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     loss_fn = nn.BCEWithLogitsLoss()
     test_loss, roc_auc, pr_auc, mcc = evaluate(model, test_loader, loss_fn, device)
 
@@ -209,10 +211,11 @@ def test_model_on_ecod(model, ecod_df, writer=None, batch_size=64, device="cpu",
            f"PR AUC: {pr_auc:.3f} | MCC: {mcc:.3f}")
     print(msg)
 
-    from datetime import datetime
+    # Write to file
     with open(log_path, "a") as f:
         f.write(f"{datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')} {msg}\n")
 
+    # TensorBoard
     if writer:
         writer.add_scalar("Test/Loss", test_loss)
         writer.add_scalar("Test/ROC_AUC", roc_auc)
