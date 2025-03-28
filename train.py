@@ -10,10 +10,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score, matthews_corrcoef
 from tqdm.notebook import tqdm
 from datetime import datetime
+import shutil
 timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 from model import ProteinClassifier
-from dataset import ProteinPairDataset,StreamingProteinPairDataset
+from dataset import ProteinPairDataset, StreamingProteinPairDataset
 from weight_strategy import inverse_class_weighting
 from dataset import create_dataloaders
 from tensorboard_utils import get_tensorboard_writer
@@ -82,6 +83,10 @@ def train_model(
     os.makedirs("logs", exist_ok=True)
     log_file_path = os.path.join("logs", f"{log_dir_name}.txt")
     log_file = open(log_file_path, "a")
+    os.makedirs("modelData", exist_ok=True)
+    best_model_path = os.path.join("modelData", f"{log_dir_name}_best.pt")
+    all_models_dir = os.path.join("modelData", f"{log_dir_name}_all")
+    os.makedirs(all_models_dir, exist_ok=True)
 
     if features and labels:
         dataset = ProteinPairDataset(features=features, labels=labels)
@@ -93,8 +98,17 @@ def train_model(
         train_dataset = Subset(dataset, train_indices)
         val_dataset = Subset(dataset, val_indices)
     elif protein_df is not None:
-        # Datasets handled inside create_dataloaders()
-        pass
+        dataset_size = len(protein_df)
+        split = int(val_split * dataset_size)
+        train_df = protein_df.iloc[split:].reset_index(drop=True)
+        val_df = protein_df.iloc[:split].reset_index(drop=True)
+
+        if streaming:
+            train_dataset = StreamingProteinPairDataset(train_df)
+            val_dataset = StreamingProteinPairDataset(val_df)
+        else:
+            train_dataset = ProteinPairDataset(df=train_df)
+            val_dataset = ProteinPairDataset(df=val_df)
 
     else:
         raise ValueError("Must pass either protein_df or features + labels")
@@ -102,13 +116,13 @@ def train_model(
     print(f"[INFO] Loading Dataloader using streaming :",streaming)
 
     train_loader, val_loader = create_dataloaders(
-        protein_df=protein_df.head(500),
-        features=features,
-        labels=labels,
-        batch_size=batch_size,
-        val_split=val_split,
-        streaming=streaming
-    )
+    protein_df=protein_df,
+    features=features,
+    labels=labels,
+    batch_size=batch_size,
+    val_split=val_split,
+    streaming=streaming
+)
 
     # Model and optimizer
     model = ProteinClassifier(hidden_dim=hidden_dim, input_dim=input_dim).to(device)
@@ -117,6 +131,7 @@ def train_model(
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
 
+    best_roc_auc = 0
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0
@@ -141,6 +156,13 @@ def train_model(
         # Evaluation
         val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn, device)
 
+        epoch_model_path = os.path.join(all_models_dir, f"epoch_{epoch+1}.pt")
+        torch.save(model.state_dict(), epoch_model_path)
+
+        if epoch == 0 or roc_auc > best_roc_auc:
+            best_roc_auc = roc_auc
+            torch.save(model.state_dict(), best_model_path)
+
         msg = (f"Epoch {epoch+1}/{num_epochs} | "
                f"Train Loss: {train_loss:.4f} | "
                f"Val Loss: {val_loss:.4f} | "
@@ -158,7 +180,20 @@ def train_model(
             writer.add_scalar("Metrics/ROC_AUC", roc_auc, epoch)
             writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
             writer.add_scalar("Metrics/MCC", mcc, epoch)
-        
+
+        best_model_path = os.path.join("modelData", f"{log_dir_name}_best.pt")
+        torch.save(model.state_dict(), best_model_path)
+
+        # Save full checkpoint including optimizer for resume
+        checkpoint = {
+            "epoch": epoch + 1,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": train_loss
+        }
+        full_ckpt_path = os.path.join(all_models_dir, f"epoch_{epoch+1}_full.pt")
+        torch.save(checkpoint, full_ckpt_path)
+
     writer.close()
     log_file.close()
     return model
