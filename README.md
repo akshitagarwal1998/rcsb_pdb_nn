@@ -1,70 +1,128 @@
-# RCSB PDB Neural Network Task
+# Protein Similarity Classification using BioZernike Descriptors
 
-## Overview
-This project is a solution for the RCSB PDB - SDSC Data Science Assistant task. The goal is to train and evaluate a fully connected neural network that can classify whether two proteins have similar 3D structures based on 1D BioZernike descriptors.
+This repository provides a PyTorch-based framework for classifying protein structural similarity using BioZernike descriptors. Developed as part of the RCSB PDB Data Science internship task, the pipeline supports efficient dataset handling, model training, and evaluation workflows at scale.
 
-## Objective
-Train a neural network using PyTorch to predict structural similarity between pairs of proteins using pairwise distance features computed from geometric and Zernike moments.
+---
 
-## Dataset
-Two datasets are provided:
-- `cath_moments.tsv`: Training dataset
-- `ecod_moments.tsv`: Evaluation dataset
+## 📁 Directory Overview
 
-### Each row contains:
-- Column 0: Protein shape class identifier
-- Columns 1–17: Geometric descriptors
-- Columns 18–393: Zernike moments
+```
+rcsb_pdb_nn/
+├── model.py               # Defines the neural network model (MLP)
+├── train.py               # Training loop and evaluation logic
+├── dataset.py             # Dataset classes (streaming vs. precomputed cache)
+├── cache_utils.py         # Utilities for caching feature-label pairs
+├── tensorboard_utils.py   # Setup for TensorBoard logging
+├── util.py                # Descriptor classes and distance metrics
+├── weight_strategy.py     # (Optional) Weighted sampling strategies
+│
+├── data/
+│   ├── cath_moments.tsv   # CATH dataset (geometric + Zernike features)
+│   └── ecod_moments.tsv   # ECOD dataset for testing
+│
+├── cache/                 # Contains partitioned and merged caches
+├── logs/                  # Log files per training run
+├── modelData/             # Stores best and per-epoch model checkpoints
+└── Main.ipynb             # Notebook for exploration and testing
+```
 
-## Preprocessing
-- Pairs are generated between all proteins in the training set.
-- For each pair, two distances are computed:
-  - Geometric distance: L2 norm between geometric descriptors
-  - Zernike distance: L2 norm between Zernike moments
-- The label is 1 if proteins have the same shape class, otherwise 0.
+---
 
-## Model
-- Fully connected neural network trained on distance features
-- Model variants:
-  - Single neuron (logistic regression)
-  - Fully connected with 32, 64, 128, 256 neurons
-- L2 regularization applied only to weights
+## ⚙️ Setup
 
-## Training
-- Training is conducted over 100 epochs
-- Different loss functions (e.g., BCE, BCEWithLogits) and optimizers (e.g., SGD, Adam) are experimented with
-- Training data is imbalanced; handled using `WeightedRandomSampler`
+```bash
+# Clone repository
+git clone https://github.com/akshitagarwal1998/rcsb_pdb_nn.git
+cd rcsb_pdb_nn
+
+# Setup environment
+conda create -n tf_keras python=3.12
+conda activate tf_keras
+pip install -r requirements.txt
+```
+
+---
+
+## 🚀 Modes of Operation
+
+### 1. Precomputed Mode (`streaming=False`)
+
+Load precomputed pairwise feature and label tensors from disk for efficient training.
+
+```python
+from cache_utils import load_cached_parts
+from train import train_model
+
+features, labels = load_cached_parts("./cache/cath_2685")
+model = train_model(features=features, labels=labels, streaming=False, input_dim=3924)
+```
+
+To generate a precomputed cache:
+
+```python
+from cache_utils import cache_pairwise_data
+cache_pairwise_data(df, cache_dir="./cache/cath_2685", buffer_limit_mb=100)
+```
+
+### 2. Streaming Mode (`streaming=True`)
+
+Stream protein pairs and compute distances on-the-fly, avoiding large memory usage.
+
+```python
+from train import train_model
+
+df = pd.read_csv("data/cath_moments.tsv", sep='\t', header=None).dropna(axis=1)
+model = train_model(protein_df=df, streaming=True)
+```
+
+---
 
 ## Evaluation
-- Evaluation performed after every epoch using `ecod_moments.tsv`
-- Metrics logged:
-  - ROC AUC
-  - PR AUC
-  - MCC (Matthews Correlation Coefficient)
 
-## Tools & Libraries
-- PyTorch
-- TensorBoard (for logging metrics and histograms)
-- scikit-learn (for evaluation metrics)
+To evaluate the model on the ECOD dataset:
 
-## Project Structure
-```
-├── dataset.py        # Dataset and DataLoader logic
-├── model.py          # Neural network architecture
-├── train.py          # Training and evaluation loop
-├── requirements.txt  # Required packages
-├── results/          # Screenshots and result summaries
-└── tensorboard_logs/ # Logs for visualization in TensorBoard
+```python
+from train import test_model_on_ecod
+
+ecod_df = pd.read_csv("data/ecod_moments.tsv", sep='\t', header=None).dropna(axis=1)
+test_model_on_ecod(model, ecod_df)
 ```
 
-## How to Run
-Instructions will be added after implementation.
+---
 
-## Results
-This section will include summary observations and screenshots from TensorBoard once training is completed.
+## TensorBoard Logging
 
-## Contributors
-- Akshit Agarwal
+All metrics are logged via TensorBoard. To launch the dashboard:
 
-## License
-MIT License
+```bash
+tensorboard --logdir=tensorboard_logs
+```
+
+Visit [http://localhost:6006](http://localhost:6006) in your browser to view training progress.
+
+---
+
+## Features
+
+- Support for both cached and streaming data pipelines
+- Efficient `nC2` sampling via generator or precompute mode
+- TensorBoard integration for real-time training monitoring
+- Saves best and per-epoch model checkpoints for reproducibility
+- Compatible with both CPU and GPU
+
+---
+
+## Notes
+
+- Use streaming mode if cache files exceed available memory (recommended for >10M pairs).
+- Set `persistent_workers=True` and tune `prefetch_factor` in `DataLoader` for large-scale runs.
+- Best model is saved in `modelData/best_model.pt`.
+
+---
+
+## Author
+
+**Akshit Agarwal**  
+MS in Computer Science, UC San Diego  
+Email: aka002@ucsd.edu  
+GitHub: [akshitagarwal1998](https://github.com/akshitagarwal1998)
