@@ -9,6 +9,8 @@ def get_tensorboard_writer(
     batch_size=None,
     lr=None,
     num_epochs=None,
+    val_split=None,
+    streaming=False,
     tag=None
 ):
     """
