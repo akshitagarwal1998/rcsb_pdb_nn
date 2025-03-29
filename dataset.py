@@ -37,13 +37,13 @@ class ProteinPairDataset(Dataset):
 
 class StreamingProteinPairDataset(Dataset):
     def __init__(self, df):
-        # print(f"[INFO] Initializing Streaming Dataset from DataFrame of size {len(df)}")
+        print(f"[INFO] Initializing Streaming Dataset from DataFrame of size {len(df)}")
         start = time.time()
         self.df = df.reset_index(drop=True)
         self.num_proteins = len(df)
 
         # Build index mapping for combinations 
-        self.index_pairs = list(itertools.combinations(range(self.num_proteins), 2))
+        self.index_pairs = self.index_pairs = list(itertools.combinations(range(len(df)), 2))
         # print(f"[INFO] Generated index pairs: {len(self.index_pairs)} total")
         print(f"[INFO] Streaming init done in {time.time() - start:.2f} seconds")
 
@@ -51,7 +51,7 @@ class StreamingProteinPairDataset(Dataset):
         return len(self.index_pairs)
 
     def __getitem__(self, idx):
-        i, j = self.index_pairs[idx]
+        i, j = list(itertools.islice(self.index_pairs, idx, idx + 1))[0]
 
         row_i = self.df.iloc[i]
         row_j = self.df.iloc[j]
@@ -70,6 +70,35 @@ class StreamingProteinPairDataset(Dataset):
 
         return torch.tensor(distance_vector, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
+class StreamingProteinPairDatasetV2(Dataset):
+    def __init__(self, df):
+        start = time.time()
+        self.df = df.reset_index(drop=True)
+        self.num_proteins = len(df)
+
+        # Pre-extract all single protein descriptors
+        print(f"[INFO] Initializing Streaming Dataset from DataFrame of size {len(df)}")
+        self.protein_objects = [
+            BioZernikeMoment(row[1:18].values, row[18:].values)
+            for _, row in self.df.iterrows()
+        ]
+
+        # Precompute all possible index pairs
+        self.index_pairs = list(itertools.combinations(range(self.num_proteins), 2))
+
+        print(f"[INFO] Streaming V2 init done in {time.time() - start:.2f} seconds")
+
+    def __len__(self):
+        return len(self.index_pairs)
+
+    def __getitem__(self, idx):
+        i, j = self.index_pairs[idx]
+        label = int(self.df.iloc[i, 0] == self.df.iloc[j, 0])
+        bio_i = self.protein_objects[i]
+        bio_j = self.protein_objects[j]
+        distance_vector = bio_i.distance_vector(bio_j)
+        return torch.tensor(distance_vector, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+
 def create_dataloaders(protein_df=None, features=None, labels=None, batch_size=64, val_split=0.2, streaming=False):
     print(f"[INFO] Creating dataloaders... streaming={streaming}")
     num_threads = multiprocessing.cpu_count()
@@ -77,7 +106,7 @@ def create_dataloaders(protein_df=None, features=None, labels=None, batch_size=6
     if streaming:
         if protein_df is None:
             raise ValueError("Streaming requires 'protein_df'")
-        dataset = StreamingProteinPairDataset(protein_df)
+        dataset = StreamingProteinPairDatasetV2(protein_df)
     else:
         if features is None or labels is None:
             raise ValueError("Non-streaming requires 'features' and 'labels'")

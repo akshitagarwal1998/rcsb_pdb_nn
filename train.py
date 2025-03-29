@@ -15,7 +15,6 @@ timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 from model import ProteinClassifier
 from dataset import ProteinPairDataset, StreamingProteinPairDataset
-from weight_strategy import inverse_class_weighting
 from dataset import create_dataloaders
 from tensorboard_utils import get_tensorboard_writer
 
@@ -75,6 +74,8 @@ def train_model(
         batch_size=batch_size,
         lr=lr,
         num_epochs=num_epochs,
+        val_split=val_split,
+        streaming=streaming,
         tag="baseline"
     )
 
@@ -88,45 +89,20 @@ def train_model(
     all_models_dir = os.path.join("modelData", f"{log_dir_name}_all")
     os.makedirs(all_models_dir, exist_ok=True)
 
-    if features and labels:
-        dataset = ProteinPairDataset(features=features, labels=labels)
-        dataset_size = len(dataset)
-        split = int(val_split * dataset_size)
-        indices = list(range(dataset_size))
-        train_indices, val_indices = indices[split:], indices[:split]
-
-        train_dataset = Subset(dataset, train_indices)
-        val_dataset = Subset(dataset, val_indices)
-    elif protein_df is not None:
-        dataset_size = len(protein_df)
-        split = int(val_split * dataset_size)
-        train_df = protein_df.iloc[split:].reset_index(drop=True)
-        val_df = protein_df.iloc[:split].reset_index(drop=True)
-
-        if streaming:
-            train_dataset = StreamingProteinPairDataset(train_df)
-            val_dataset = StreamingProteinPairDataset(val_df)
-        else:
-            train_dataset = ProteinPairDataset(df=train_df)
-            val_dataset = ProteinPairDataset(df=val_df)
-
-    else:
-        raise ValueError("Must pass either protein_df or features + labels")
-    
     print(f"[INFO] Loading Dataloader using streaming :",streaming)
 
     train_loader, val_loader = create_dataloaders(
-    protein_df=protein_df,
-    features=features,
-    labels=labels,
-    batch_size=batch_size,
-    val_split=val_split,
-    streaming=streaming
-)
+        protein_df=protein_df,
+        features=features,
+        labels=labels,
+        batch_size=batch_size,
+        val_split=val_split,
+        streaming=streaming
+    )
 
     # Model and optimizer
     model = ProteinClassifier(hidden_dim=hidden_dim, input_dim=input_dim).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4) # Weight decay is L2
     loss_fn = nn.BCEWithLogitsLoss()
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
