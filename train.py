@@ -104,6 +104,10 @@ def train_model(
     model = ProteinClassifier(hidden_dim=hidden_dim, input_dim=input_dim).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4) # Weight decay is L2
     loss_fn = nn.BCEWithLogitsLoss()
+    
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=5, min_lr=1e-7, verbose=True
+    )
 
     print(f"Training model (hidden_dim={hidden_dim}) for {num_epochs} epochs...")
 
@@ -169,6 +173,8 @@ def train_model(
         }
         full_ckpt_path = os.path.join(all_models_dir, f"epoch_{epoch+1}_full.pt")
         torch.save(checkpoint, full_ckpt_path)
+
+        scheduler.step(val_loss)
 
     writer.close()
     log_file.close()

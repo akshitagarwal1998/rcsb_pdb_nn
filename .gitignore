@@ -1,0 +1,8 @@
+# Ignore folders
+logs/
+tensorboard_logs/
+modelData/
+__pycache__/
+
+# Ignore zip exports
+*.zip
