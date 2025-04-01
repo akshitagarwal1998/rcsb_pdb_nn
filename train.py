@@ -14,12 +14,11 @@ import shutil
 timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 from model import ProteinClassifier
-from dataset import ProteinPairDataset, StreamingProteinPairDataset
+from dataset import ProteinPairDataset, StreamingProteinPairDatasetV2
 from dataset import create_dataloaders
 from tensorboard_utils import get_tensorboard_writer
 
-# Limit CPU usage to 80% of available cores
-num_threads = max(1, int(os.cpu_count() * 0.8))
+num_threads = max(1, int(os.cpu_count()))
 torch.set_num_threads(num_threads)
 print(f"[INFO] Using {num_threads} CPU threads")
 
@@ -47,23 +46,19 @@ def evaluate(model, dataloader, loss_fn, device):
     return total_loss, roc_auc, pr_auc, mcc
 
 def train_model(
-    protein_df=None,
-    features=None,
-    labels=None,
+    protein_df,
     hidden_dim=None,
     input_dim=None,
     num_epochs=5,
     batch_size=64,
     val_split=0.2,
     writer=None,
-    lr=1e-3,
-    streaming=True 
+    lr=1e-3
 ):
 
     """
     Trains a model using either:
       - raw DataFrame (protein_df)
-      - OR precomputed (features + labels)
     """
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -75,7 +70,6 @@ def train_model(
         lr=lr,
         num_epochs=num_epochs,
         val_split=val_split,
-        streaming=streaming,
         tag="baseline"
     )
 
@@ -89,15 +83,12 @@ def train_model(
     all_models_dir = os.path.join("modelData", f"{log_dir_name}_all")
     os.makedirs(all_models_dir, exist_ok=True)
 
-    print(f"[INFO] Loading Dataloader using streaming :",streaming)
+    print(f"[INFO] Loading Dataloader")
 
     train_loader, val_loader = create_dataloaders(
         protein_df=protein_df,
-        features=features,
-        labels=labels,
         batch_size=batch_size,
-        val_split=val_split,
-        streaming=streaming
+        val_split=val_split
     )
 
     # Model and optimizer
@@ -180,10 +171,8 @@ def train_model(
     log_file.close()
     return model
 
-
-
 def test_model_on_ecod(model, protein_df, writer=None, batch_size=64, device="cpu", log_path="test_log.txt"):
-    test_dataset = StreamingProteinPairDataset(protein_df)
+    test_dataset = StreamingProteinPairDatasetV2(protein_df)
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     loss_fn = nn.BCEWithLogitsLoss()

@@ -4,7 +4,7 @@ This repository provides a PyTorch-based framework for classifying protein struc
 
 ---
 
-## 📁 Directory Overview
+##  Directory Overview
 
 ```
 rcsb_pdb_nn/
@@ -28,7 +28,7 @@ rcsb_pdb_nn/
 
 ---
 
-## ⚙️ Setup
+##  Setup
 
 ```bash
 # Clone repository
@@ -43,36 +43,25 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Modes of Operation
+## Modes of Operation
 
-### 1. Precomputed Mode (`streaming=False`)
+### 1. Streaming Mode (`streaming=True`)
 
-Load precomputed pairwise feature and label tensors from disk for efficient training.
-
-```python
-from cache_utils import load_cached_parts
-from train import train_model
-
-features, labels = load_cached_parts("./cache/cath_2685")
-model = train_model(features=features, labels=labels, streaming=False, input_dim=3924)
-```
-
-To generate a precomputed cache:
-
-```python
-from cache_utils import cache_pairwise_data
-cache_pairwise_data(df, cache_dir="./cache/cath_2685", buffer_limit_mb=100)
-```
-
-### 2. Streaming Mode (`streaming=True`)
-
-Stream protein pairs and compute distances on-the-fly, avoiding large memory usage.
+### Training
 
 ```python
 from train import train_model
+from weight_strategy import inverse_class_weighting
 
 df = pd.read_csv("data/cath_moments.tsv", sep='\t', header=None).dropna(axis=1)
-model = train_model(protein_df=df, streaming=True)
+input_dim = df.shape[1] - 1
+model = train_model(protein_df=df.head(num_proteins),
+                    hidden_dim=128,
+                    input_dim=input_dim,
+                    batch_size=128,
+                    num_epochs=30,
+                    val_split=0.1,
+                    lr=1e-3)
 ```
 
 ---
@@ -104,8 +93,7 @@ Visit [http://localhost:6006](http://localhost:6006) in your browser to view tra
 
 ## Features
 
-- Support for both cached and streaming data pipelines
-- Efficient `nC2` sampling via generator or precompute mode
+- Efficient pairwise streaming via generator for scalability
 - TensorBoard integration for real-time training monitoring
 - Saves best and per-epoch model checkpoints for reproducibility
 - Compatible with both CPU and GPU
@@ -114,7 +102,6 @@ Visit [http://localhost:6006](http://localhost:6006) in your browser to view tra
 
 ## Notes
 
-- Use streaming mode if cache files exceed available memory (recommended for >10M pairs).
 - Set `persistent_workers=True` and tune `prefetch_factor` in `DataLoader` for large-scale runs.
 - Best model is saved in `modelData/best_model.pt`.
 
