@@ -10,7 +10,7 @@ This repository provides a PyTorch-based framework for classifying protein struc
 rcsb_pdb_nn/
 ├── model.py               # Defines the neural network model (MLP)
 ├── train.py               # Training loop and evaluation logic
-├── dataset.py             # Dataset classes (streaming vs. precomputed cache)
+├── dataset.py             # Dataset class
 ├── cache_utils.py         # Utilities for caching feature-label pairs
 ├── tensorboard_utils.py   # Setup for TensorBoard logging
 ├── util.py                # Descriptor classes and distance metrics
@@ -45,7 +45,7 @@ pip install -r requirements.txt
 
 ## Modes of Operation
 
-### 1. Streaming Mode (`streaming=True`)
+### 1. Streaming Mode ( using on the fly computation for nC2 pairs of proteins)
 
 ### Training
 
