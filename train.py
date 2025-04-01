@@ -127,8 +127,8 @@ def train_model(
         # Evaluation
         val_loss, roc_auc, pr_auc, mcc = evaluate(model, val_loader, loss_fn, device)
 
-        epoch_model_path = os.path.join(all_models_dir, f"epoch_{epoch+1}.pt")
-        torch.save(model.state_dict(), epoch_model_path)
+        # epoch_model_path = os.path.join(all_models_dir, f"epoch_{epoch+1}.pt")
+        # torch.save(model.state_dict(), epoch_model_path)
 
         if epoch == 0 or roc_auc > best_roc_auc:
             best_roc_auc = roc_auc
@@ -152,18 +152,18 @@ def train_model(
             writer.add_scalar("Metrics/PR_AUC", pr_auc, epoch)
             writer.add_scalar("Metrics/MCC", mcc, epoch)
 
-        best_model_path = os.path.join("modelData", f"{log_dir_name}_best.pt")
-        torch.save(model.state_dict(), best_model_path)
+        # best_model_path = os.path.join("modelData", f"{log_dir_name}_best.pt")
+        # torch.save(model.state_dict(), best_model_path)
 
         # Save full checkpoint including optimizer for resume
-        checkpoint = {
-            "epoch": epoch + 1,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "loss": train_loss
-        }
-        full_ckpt_path = os.path.join(all_models_dir, f"epoch_{epoch+1}_full.pt")
-        torch.save(checkpoint, full_ckpt_path)
+        # checkpoint = {
+        #     "epoch": epoch + 1,
+        #     "model_state_dict": model.state_dict(),
+        #     "optimizer_state_dict": optimizer.state_dict(),
+        #     "loss": train_loss
+        # }
+        # full_ckpt_path = os.path.join(all_models_dir, f"epoch_{epoch+1}_full.pt")
+        # torch.save(checkpoint, full_ckpt_path)
 
         scheduler.step(val_loss)
 
