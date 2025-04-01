@@ -106,6 +106,23 @@ Visit [http://localhost:6006](http://localhost:6006) in your browser to view tra
 
 ---
 
+## Results
+
+The plot below compares key evaluation metrics (ROC AUC, PR AUC, MCC) across different network configurations.
+
+![Improved Metrics Comparison](improved_metrics_comparison_table.png)
+
+---
+
+## Zenodo Archive
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15106965.svg)](https://doi.org/10.5281/zenodo.15106965)
+
+This project’s TensorBoard logs and evaluation artifacts are archived on Zenodo:  
+https://zenodo.org/records/15106965
+
+---
+
 ## Author
 
 **Akshit Agarwal**  
