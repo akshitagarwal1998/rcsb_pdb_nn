@@ -11,10 +11,9 @@ rcsb_pdb_nn/
 ├── model.py               # Defines the neural network model (MLP)
 ├── train.py               # Training loop and evaluation logic
 ├── dataset.py             # Dataset class
-├── cache_utils.py         # Utilities for caching feature-label pairs
 ├── tensorboard_utils.py   # Setup for TensorBoard logging
 ├── util.py                # Descriptor classes and distance metrics
-├── weight_strategy.py     # (Optional) Weighted sampling strategies
+├── weight_strategy.py     # Weighted sampling strategies
 │
 ├── data/
 │   ├── cath_moments.tsv   # CATH dataset (geometric + Zernike features)
