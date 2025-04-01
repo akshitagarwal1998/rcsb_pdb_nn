@@ -108,6 +108,24 @@ Visit [http://localhost:6006](http://localhost:6006) in your browser to view tra
 
 ## Results
 
+### Experiment 1 – Constant Learning Rate (1e-3) with Variable Hidden Dimension
+
+The results show that as we increase the hidden dimension with a constant learning rate of 1e-3, the model performance improves.  
+A hidden dimension of 1024 provides the best performance for learning protein classification.
+
+![Experiment 1: Hidden Dim Variations](LR_1e-3_Hidden_dim.png)
+
+---
+
+### Experiment 2 – Variable Learning Rate with Constant Hidden Dimension (1024)
+
+The results show that a learning rate of 1e-5 yields the best results.  
+At 1e-6, the model begins to underfit the data, while 1e-3 is too large and unstable for convergence.
+
+![Experiment 2: Learning Rate Variations](LR_Different_Hidden_dim_1024.png)
+
+---
+
 The plot below compares key evaluation metrics (ROC AUC, PR AUC, MCC) across different network configurations.
 
 ![Improved Metrics Comparison](improved_metrics_comparison_table.png)
